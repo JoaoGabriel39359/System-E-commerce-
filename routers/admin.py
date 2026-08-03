@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Form, Cookie
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from schemas.pedido import PedidoCreate
-from database import supabase, bairros_db, BAIRROS_ORIGINAIS
+from database import supabase, BAIRROS_ORIGINAIS
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 templates = Jinja2Templates(directory="templates")
@@ -26,20 +26,18 @@ async def get_login_page(request: Request, erro: str = None):
 @router.post("/login")
 async def post_login(username: str = Form(...), password: str = Form(...)):
     if username == ADMIN_USER and password == ADMIN_PASS:
-        # Credenciais corretas! Redireciona para o admin e salva o Cookie de sessão
         resposta = RedirectResponse(url="/admin", status_code=303)
         resposta.set_cookie(
             key="admin_session", 
             value="autenticado_divino", 
-            httponly=True, # Protege contra ataques XSS de scripts maliciosos
+            httponly=True,
             samesite="lax"
         )
         return resposta
     else:
-        # Credenciais erradas, volta informando o erro na tela
         return RedirectResponse(url="/admin/login?erro=Usu%C3%A1rio%20ou%20senha%20inv%C3%A1lidos.", status_code=303)
 
-# --- ROTA: LOGOUT (OPCIONAL) ---
+# --- ROTA: LOGOUT ---
 @router.get("/logout")
 async def get_logout():
     resposta = RedirectResponse(url="/admin/login", status_code=303)
@@ -51,9 +49,11 @@ async def get_admin(request: Request, admin_session: str = Cookie(default=None))
     if admin_session != "autenticado_divino":
         return RedirectResponse(url="/admin/login", status_code=303)
 
+    # 1. Ingredientes
     res_ing = supabase.table("ingredientes").select("*").order("nome").execute()
     ingredientes_formatados = {item["nome"]: {"disponivel": item["disponivel"]} for item in res_ing.data}
 
+    # 2. Configurações
     res_conf = supabase.table("configuracoes").select("*").execute()
     config_formatada = {}
     for item in res_conf.data:
@@ -66,8 +66,14 @@ async def get_admin(request: Request, admin_session: str = Cookie(default=None))
         else:
             config_formatada[chave] = valor
 
-    res_pedidos = supabase.table("pedidos").select("*").execute()
+    # 3. Bairros (Buscando direto do Supabase)
+    res_bairros = supabase.table("bairros").select("*").order("nome").execute()
+    bairros_formatados = {item["nome"]: float(item["taxa"]) for item in res_bairros.data}
+    if not bairros_formatados:
+        bairros_formatados = BAIRROS_ORIGINAIS
 
+    # 4. Pedidos
+    res_pedidos = supabase.table("pedidos").select("*").execute()
     pedidos_formatados = []
     for pedido in res_pedidos.data:
         novo_pedido = dict(pedido)
@@ -82,7 +88,7 @@ async def get_admin(request: Request, admin_session: str = Cookie(default=None))
         name="admin.html",
         context={
             "ingredientes": ingredientes_formatados,
-            "bairros": bairros_db,
+            "bairros": bairros_formatados,
             "config": config_formatada,
             "pedidos": pedidos_formatados
         },
@@ -103,6 +109,13 @@ async def get_status_loja():
         "ingredientes_disponiveis": lista_ingredientes
     }
 
+# --- NOVO ENDPOINT LEVE PARA POLLING ---
+@router.get("/api/pedidos/contagem")
+async def get_contagem_pedidos():
+    """Endpoint otimizado para o polling de 10s do JS sem carregar a página toda."""
+    res = supabase.table("pedidos").select("id").not_.in_("status", ["Concluído", "Cancelado"]).execute()
+    return {"total_ativos": len(res.data)}
+
 @router.post("/salvar")
 async def post_salvar(request: Request, admin_session: str = Cookie(default=None)):
     if admin_session != "autenticado_divino":
@@ -110,20 +123,21 @@ async def post_salvar(request: Request, admin_session: str = Cookie(default=None
 
     form_data = await request.form()
     
+    # 1. Ingredientes
     res_ing = supabase.table("ingredientes").select("nome").execute()
     for item in res_ing.data:
         nome = item["nome"]
         status_disponivel = f"ingrediente_{nome}" in form_data
         supabase.table("ingredientes").update({"disponivel": status_disponivel}).eq("nome", nome).execute()
 
-    # 2. Controla a Promoção de Nutella Grátis e o Status de Loja Aberta
+    # 2. Nutella Grátis e Status da Loja
     loja_status = "true" if "loja_aberta" in form_data else "false"
     nutella_status = "true" if "nutella_gratis" in form_data else "false"
     
     supabase.table("configuracoes").update({"valor": loja_status}).eq("chave", "loja_aberta").execute()
     supabase.table("configuracoes").update({"valor": nutella_status}).eq("chave", "nutella_gratis").execute()
 
-    # 3. Atualiza o WhatsApp do Vendedor se enviado
+    # 3. WhatsApp do Vendedor
     if "whatsapp_vendedor" in form_data:
         raw_phone = form_data["whatsapp_vendedor"]
         digits = "".join([c for c in raw_phone if c.isdigit()])
@@ -131,11 +145,15 @@ async def post_salvar(request: Request, admin_session: str = Cookie(default=None
             digits = "55" + digits
         supabase.table("configuracoes").update({"valor": digits}).eq("chave", "whatsapp_vendedor").execute()
 
-    for bairro in bairros_db.keys():
+    # 4. Taxas dos Bairros (Sincronizado no Supabase)
+    res_bairros = supabase.table("bairros").select("nome").execute()
+    for item in res_bairros.data:
+        bairro = item["nome"]
         campo_taxa = f"taxa_{bairro}"
         if campo_taxa in form_data:
             try:
-                bairros_db[bairro] = float(form_data[campo_taxa])
+                nova_taxa = float(form_data[campo_taxa])
+                supabase.table("bairros").update({"taxa": nova_taxa}).eq("nome", bairro).execute()
             except ValueError:
                 pass
         
@@ -217,7 +235,13 @@ async def get_imprimir_pedido(pedido_id: str):
         return HTMLResponse(content="<h1>Pedido não encontrado</h1>", status_code=404)
         
     pedido_encontrado = res_pedido.data[0]
-    recheios_texto = ", ".join(pedido_encontrado['recheios']) if isinstance(pedido_encontrado['recheios'], list) else pedido_encontrado['recheios']
+    
+    # Formatação limpa de itens e recheios para cupons com 1 ou múltiplos copos
+    recheios_raw = pedido_encontrado['recheios']
+    if isinstance(recheios_raw, list):
+        itens_html = "".join([f"<div style='padding-left: 8px; margin-bottom: 3px;'>• {item}</div>" for item in recheios_raw])
+    else:
+        itens_html = f"<div style='padding-left: 8px;'>• {recheios_raw}</div>"
 
     html_cupom = f"""
     <!DOCTYPE html>
@@ -264,18 +288,19 @@ async def get_imprimir_pedido(pedido_id: str):
         <div>Endereço: {pedido_encontrado['endereco']}</div>
         <div class="line"></div>
         
-        <div class="bold">🛒 ITENS:</div>
-        <div>Copão personalizado: {pedido_encontrado['tamanho']}</div>
-        <div style="padding-left: 8px;">• Recheios: {recheios_texto}</div>
+        <div class="bold">🛒 ITENS PEDIDOS:</div>
+        <div>Resumo Copo(s): {pedido_encontrado['tamanho']}</div>
+        {itens_html}
     """
         
     if pedido_encontrado['adicional_nutella'] > 0:
-        html_cupom += f"""<div style="padding-left: 8px;">• Adicional Nutella: R$ 3,00</div>"""
+        valor_nutella_formatado = f"{pedido_encontrado['adicional_nutella']:.2f}".replace('.', ',')
+        html_cupom += f"""<div style="padding-left: 8px;">• Adicional Nutella Total: R$ {valor_nutella_formatado}</div>"""
         
     html_cupom += f"""
         <div class="line"></div>
         <div class="bold">💵 PAGAMENTO:</div>
-        <div>Forma: {pedido_encontrado['forma_pagamento'].upper()}</div>
+        <div>Forma: {str(pedido_encontrado['forma_pagamento']).upper()}</div>
         
         <div class="flex font-medium" style="margin-top: 6px;">
             <span>Taxa Entrega:</span>
@@ -308,16 +333,16 @@ async def get_imprimir_pedido(pedido_id: str):
 @router.post("/taxas/promocao")
 async def post_promocao_taxas(taxa_uniforme: float = Form(...)):
     if taxa_uniforme >= 0:
-        for bairro, taxa_atual in list(bairros_db.items()):
-            if taxa_atual > taxa_uniforme:
-                bairros_db[bairro] = taxa_uniforme
+        res_bairros = supabase.table("bairros").select("*").execute()
+        for item in res_bairros.data:
+            if float(item["taxa"]) > taxa_uniforme:
+                supabase.table("bairros").update({"taxa": taxa_uniforme}).eq("nome", item["nome"]).execute()
             
     return RedirectResponse(url="/admin", status_code=303)
 
 @router.post("/taxas/resetar")
 async def post_resetar_taxas():
-    # Restaura o dicionário em memória para os valores salvos no backup estático
     for bairro, taxa_original in BAIRROS_ORIGINAIS.items():
-        bairros_db[bairro] = taxa_original
+        supabase.table("bairros").upsert({"nome": bairro, "taxa": taxa_original}).execute()
         
     return RedirectResponse(url="/admin", status_code=303)

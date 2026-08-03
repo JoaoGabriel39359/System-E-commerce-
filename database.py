@@ -6,8 +6,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-bairros_db = {
+BAIRROS_ORIGINAIS = {
     "Açude": 12.00,
     "Água Limpa": 10.00,
     "Tres poços": 13.00,
@@ -88,5 +87,3 @@ bairros_db = {
     "9 de abril": 20.00,
     "Minerlandia": 20.00
 }
-
-BAIRROS_ORIGINAIS = bairros_db.copy()

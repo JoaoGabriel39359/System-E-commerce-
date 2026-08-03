@@ -298,7 +298,13 @@
                                         ',') }}</span>
                                 </div>
                                 <p class="font-bold text-stone-700">🥣 Recheios:
-                                    <span class="font-medium text-stone-600">{{ pedido.recheios|join(', ') }}</span>
+                                    <span class="font-medium text-stone-600">
+                                        {% if pedido.recheios is string %}
+                                        {{ pedido.recheios }}
+                                        {% else %}
+                                        {{ pedido.recheios|join(', ') }}
+                                        {% endif %}
+                                    </span>
                                 </p>
                                 {% if pedido.adicional_nutella > 0 %}
                                 <p class="font-bold text-amber-700 flex items-center gap-1">
@@ -424,22 +430,17 @@
             form.submit();
         }
 
-        // 2. ATUALIZAÇÃO AUTOMÁTICA DE PEDIDOS (POLLING DE 10 SEGUNDOS)
+        // 2. ATUALIZAÇÃO AUTOMÁTICA DE PEDIDOS OTIMIZADA (POLLING DE 10 SEGUNDOS VIA API JSON LEVE)
         let totalPedidosAtual = parseInt('{{ pedidos|rejectattr("status", "equalto", "Concluído")|rejectattr("status", "equalto", "Cancelado")|list|length }}') || 0;
 
         setInterval(async () => {
             try {
-                const response = await fetch('/admin');
+                const response = await fetch('/admin/api/pedidos/contagem');
                 if (response.ok) {
-                    const htmlTexto = await response.text();
-                    const parser = new DOMParser();
-                    const docJson = parser.parseFromString(htmlTexto, 'text/html');
-                    const contagemBadge = docJson.querySelector('.bg-pink-100.text-divinoPink');
-                    if (contagemBadge) {
-                        const totalNoServidor = parseInt(contagemBadge.textContent.trim());
-                        if (totalNoServidor !== totalPedidosAtual) {
-                            window.location.reload();
-                        }
+                    const data = await response.json();
+                    if (data.total_ativos !== totalPedidosAtual) {
+                        // Recarrega a página apenas quando houver alteração na contagem de pedidos ativos
+                        window.location.reload();
                     }
                 }
             } catch (error) {
