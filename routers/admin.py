@@ -330,31 +330,44 @@ async def get_imprimir_pedido(pedido_id: str):
         <meta charset="UTF-8">
         <title>Imprimir Pedido #{pedido_encontrado['id']}</title>
         <style>
-            @page {{ margin: 0; }}
+            /* Força a impressora térmica a não usar layout de folha A4 */
+            @page {{
+                size: 58mm auto;
+                margin: 0mm;
+            }}
+            
+            @media print {{
+                html, body {{
+                    width: 58mm !important;
+                    margin: 0 !important;
+                    padding: 2mm !important;
+                }}
+            }}
+
             body {{
                 font-family: 'Courier New', Courier, monospace;
-                font-size: 12px;
-                width: 100%;
-                max-width: 280px;
-                margin: 0;
-                padding: 8px;
+                font-size: 11px;
+                width: 58mm;
+                margin: 0 auto;
+                padding: 4px;
                 color: #000;
                 background: #fff;
+                box-sizing: border-box;
             }}
             .text-center {{ text-align: center; }}
             .bold {{ font-weight: bold; }}
-            .line {{ border-bottom: 1px dashed #000; margin: 8px 0; }}
+            .line {{ border-bottom: 1px dashed #000; margin: 6px 0; }}
             .flex {{ display: flex; justify-content: space-between; }}
         </style>
     </head>
     <body>
-        <div class="text-center bold" style="font-size: 14px;">
+        <div class="text-center bold" style="font-size: 13px;">
             🍫 DOCERIA DIVINO RECHEIO 🍫
         </div>
         <div class="text-center">Feito com amor, recheada de sabor</div>
         <div class="line"></div>
         
-        <div class="bold" style="font-size: 13px;">PEDIDO #{pedido_encontrado['id']}</div>
+        <div class="bold" style="font-size: 12px;">PEDIDO #{pedido_encontrado['id']}</div>
         <div>Data: {pedido_encontrado['criado_em']}</div>
         <div class="line"></div>
         
