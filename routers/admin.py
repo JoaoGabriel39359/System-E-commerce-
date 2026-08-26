@@ -312,16 +312,16 @@ async def post_atualizar_pedido(pedido_id: str = Form(...), novo_status: str = F
 async def get_imprimir_pedido(pedido_id: str):
     res_pedido = supabase.table("pedidos").select("*").eq("id", pedido_id).execute()
     if not res_pedido.data:
-        return HTMLResponse(content="<h1>Pedido não encontrado</h1>", status_code=404)
+        return HTMLResponse(content="<h1>Pedido nao encontrado</h1>", status_code=404)
         
     pedido_encontrado = res_pedido.data[0]
     
-    # Formatação limpa de itens e recheios para cupons com 1 ou múltiplos copos
+    # Formatação de itens e recheios
     recheios_raw = pedido_encontrado['recheios']
     if isinstance(recheios_raw, list):
-        itens_html = "".join([f"<div style='padding-left: 8px; margin-bottom: 3px;'>• {item}</div>" for item in recheios_raw])
+        itens_html = "".join([f"<div style='padding-left: 6px; margin-bottom: 2px;'>- {item}</div>" for item in recheios_raw])
     else:
-        itens_html = f"<div style='padding-left: 8px;'>• {recheios_raw}</div>"
+        itens_html = f"<div style='padding-left: 6px;'>- {recheios_raw}</div>"
 
     html_cupom = f"""
     <!DOCTYPE html>
@@ -330,83 +330,83 @@ async def get_imprimir_pedido(pedido_id: str):
         <meta charset="UTF-8">
         <title>Imprimir Pedido #{pedido_encontrado['id']}</title>
         <style>
-            /* Força a impressora térmica a não usar layout de folha A4 */
             @page {{
                 size: 58mm auto;
-                margin: 0mm;
+                margin: 0mm !important;
             }}
             
             @media print {{
                 html, body {{
-                    width: 58mm !important;
-                    margin: 0 !important;
-                    padding: 2mm !important;
+                    width: 48mm !important; /* Ajustado para dar margem e nao cortar as bordas */
+                    margin: 0 auto !important;
+                    padding: 0 !important;
                 }}
             }}
 
             body {{
-                font-family: 'Courier New', Courier, monospace;
+                font-family: Arial, Helvetica, sans-serif; /* Fonte limpa igual do Self Test */
                 font-size: 11px;
-                width: 58mm;
+                line-height: 1.2;
+                width: 48mm;
                 margin: 0 auto;
-                padding: 4px;
+                padding: 4px 0;
                 color: #000;
                 background: #fff;
-                box-sizing: border-box;
+                word-break: break-word;
             }}
             .text-center {{ text-align: center; }}
             .bold {{ font-weight: bold; }}
-            .line {{ border-bottom: 1px dashed #000; margin: 6px 0; }}
+            .line {{ border-bottom: 1px dashed #000; margin: 5px 0; }}
             .flex {{ display: flex; justify-content: space-between; }}
         </style>
     </head>
     <body>
         <div class="text-center bold" style="font-size: 13px;">
-            🍫 DOCERIA DIVINO RECHEIO 🍫
+            DOCERIA DIVINO RECHEIO
         </div>
-        <div class="text-center">Feito com amor, recheada de sabor</div>
+        <div class="text-center" style="font-size: 10px;">Feito com amor, recheada de sabor</div>
         <div class="line"></div>
         
         <div class="bold" style="font-size: 12px;">PEDIDO #{pedido_encontrado['id']}</div>
         <div>Data: {pedido_encontrado['criado_em']}</div>
         <div class="line"></div>
         
-        <div class="bold">👤 CLIENTE:</div>
+        <div class="bold">CLIENTE:</div>
         <div>Nome: {pedido_encontrado['nome']}</div>
         <div>Tel: {pedido_encontrado['telefone']}</div>
         <div class="line"></div>
         
-        <div class="bold">📍 ENTREGA:</div>
+        <div class="bold">ENTREGA:</div>
         <div>Bairro: {pedido_encontrado['bairro']}</div>
-        <div>Endereço: {pedido_encontrado['endereco']}</div>
+        <div>Endereco: {pedido_encontrado['endereco']}</div>
         <div class="line"></div>
         
-        <div class="bold">🛒 ITENS PEDIDOS:</div>
+        <div class="bold">ITENS PEDIDOS:</div>
         <div>Resumo Copo(s): {pedido_encontrado['tamanho']}</div>
         {itens_html}
     """
         
     if pedido_encontrado['adicional_nutella'] > 0:
         valor_nutella_formatado = f"{pedido_encontrado['adicional_nutella']:.2f}".replace('.', ',')
-        html_cupom += f"""<div style="padding-left: 8px;">• Adicional Nutella Total: R$ {valor_nutella_formatado}</div>"""
+        html_cupom += f"""<div style="padding-left: 6px;">- Adicional Nutella: R$ {valor_nutella_formatado}</div>"""
         
     html_cupom += f"""
         <div class="line"></div>
-        <div class="bold">💵 PAGAMENTO:</div>
+        <div class="bold">PAGAMENTO:</div>
         <div>Forma: {str(pedido_encontrado['forma_pagamento']).upper()}</div>
         
-        <div class="flex font-medium" style="margin-top: 6px;">
+        <div class="flex" style="margin-top: 4px;">
             <span>Taxa Entrega:</span>
             <span>R$ {f"{pedido_encontrado['taxa_entrega']:.2f}".replace('.', ',')}</span>
         </div>
-        <div class="flex bold" style="font-size: 13px; margin-top: 3px;">
+        <div class="flex bold" style="font-size: 12px; margin-top: 2px;">
             <span>TOTAL GERAL:</span>
             <span>R$ {f"{pedido_encontrado['total']:.2f}".replace('.', ',')}</span>
         </div>
         
         <div class="line"></div>
-        <div class="text-center bold" style="margin-top: 15px; font-size: 11px;">
-            Obrigado pelo pedido! 💕
+        <div class="text-center bold" style="margin-top: 10px; font-size: 10px;">
+            Obrigado pelo pedido!
         </div>
 
         <script>
