@@ -29,6 +29,8 @@
             <input type="hidden" id="nutella_gratis_config" value="{{ 'true' if config.nutella_gratis else 'false' }}">
             <input type="hidden" id="whatsapp_vendedor_config" value="{{ config.whatsapp_vendedor }}">
             <input type="hidden" id="loja_aberta_config" value="{{ 'true' if config.loja_aberta else 'false' }}">
+            <script id="initial-ingredientes" type="application/json">{{ ingredientes_json | safe }}</script>
+            <script id="initial-bairros" type="application/json">{{ bairros_json | safe }}</script>
 
             <div
                 class="relative w-36 h-36 bg-white rounded-full flex items-center justify-center p-1.5 shadow-2xl border-4 border-pink-200 shrink-0">
@@ -43,6 +45,13 @@
         </header>
 
         <main class="max-w-md mx-auto px-4 mt-6 space-y-6">
+
+            <transition name="fade">
+                <div v-if="isOffline"
+                    class="bg-amber-500 text-white text-xs font-extrabold px-4 py-3 rounded-2xl text-center shadow-lg border-2 border-amber-400 flex items-center justify-center gap-2">
+                    <span>⚠️</span> Você está sem conexão com a internet. Verifique sua rede para atualizar o pedido.
+                </div>
+            </transition>
 
             <div class="bg-white p-6 rounded-3xl shadow-md border border-pink-100">
                 <div class="flex items-center gap-3 mb-4 border-b border-pink-50 pb-2">
@@ -104,29 +113,25 @@
                 </div>
 
                 <div class="space-y-2">
-                    {% for nome, dados in ingredientes.items() %}
-                    {% if dados.disponivel %}
-                    <label
-                        class="flex items-center justify-between p-3.5 border-2 rounded-xl cursor-pointer transition-all"
-                        :class="recheiosSelecionados.includes('{{ nome }}') ? 'border-pink-300 bg-pink-100/40 shadow-xs' : 'border-gray-50 bg-white'">
-                        <div class="flex items-center gap-3">
-                            <input type="checkbox" value="{{ nome }}" v-model="recheiosSelecionados"
-                                @change="validarLimite" class="w-5 h-5 accent-pink-300 rounded">
-                            <span class="text-gray-700 font-bold text-sm">
-                                {{ nome }}
-                                {% if nome == "Nutella" %}
-                                <span
-                                    class="text-[10px] text-white bg-amber-600 px-1.5 py-0.5 rounded-md ml-1 font-extrabold">Adicional</span>
-                                {% endif %}
-                            </span>
-                        </div>
-                        <span class="text-pink-400 text-xs">❤️</span>
-                    </label>
-                    {% endif %}
-                    {% endfor %}
+                    <template v-for="(dados, nome) in ingredientesMap" :key="nome">
+                        <label v-if="dados && dados.disponivel"
+                            class="flex items-center justify-between p-3.5 border-2 rounded-xl cursor-pointer transition-all"
+                            :class="recheiosSelecionados.includes(nome) ? 'border-pink-300 bg-pink-100/40 shadow-xs' : 'border-gray-50 bg-white'">
+                            <div class="flex items-center gap-3">
+                                <input type="checkbox" :value="nome" v-model="recheiosSelecionados"
+                                    @change="validarLimite" class="w-5 h-5 accent-pink-300 rounded">
+                                <span class="text-gray-700 font-bold text-sm">
+                                    <span v-text="nome"></span>
+                                    <span v-if="nome === 'Nutella'"
+                                        class="text-[10px] text-white bg-amber-600 px-1.5 py-0.5 rounded-md ml-1 font-extrabold">Adicional</span>
+                                </span>
+                            </div>
+                            <span class="text-pink-400 text-xs">❤️</span>
+                        </label>
+                    </template>
                 </div>
 
-                <div v-if="recheiosSelecionados.includes('Nutella') && tamanhoSelecionado !== 22"
+                <div v-if="recheiosSelecionados.includes('Nutella') && adicionalNutella > 0"
                     class="mt-4 p-3 bg-amber-50 text-amber-900 rounded-xl text-xs font-bold border border-amber-200 shadow-inner">
                     ℹ️ Adicional de Nutella incluso para o tamanho: <strong>+ R$ <span
                             v-text="adicionalNutella.toFixed(2).replace('.', ',')"></span></strong>
@@ -173,15 +178,15 @@
                             class="w-full p-2.5 border-2 border-pink-100 rounded-xl text-xs font-semibold focus:outline-none focus:border-pink-300 bg-pink-50/30">
 
                         <div class="space-y-1 pt-1">
-                            {% for bairro, taxa in bairros.items() %}
-                            <button type="button" v-show="filtrarBairro('{{ bairro }}')"
-                                @click="clicarNoBairro('{{ bairro }}', {{ taxa }})"
+                            <button type="button" v-for="(taxa, bairro) in bairrosMap" :key="bairro"
+                                v-show="filtrarBairro(bairro)"
+                                @click="clicarNoBairro(bairro, taxa)"
                                 class="w-full text-left p-2.5 hover:bg-pink-50 rounded-xl text-sm font-bold text-gray-700 transition-colors flex justify-between items-center">
-                                <span>{{ bairro }}</span>
-                                <span class="text-xs text-pink-500 bg-pink-100/50 px-2 py-0.5 rounded-md">R$ {{
-                                    "%.2f"|format(taxa)|replace('.', ',') }}</span>
+                                <span v-text="bairro"></span>
+                                <span class="text-xs text-pink-500 bg-pink-100/50 px-2 py-0.5 rounded-md">
+                                    R$ <span v-text="Number(taxa).toFixed(2).replace('.', ',')"></span>
+                                </span>
                             </button>
-                            {% endfor %}
                         </div>
                     </div>
                 </div>
@@ -403,7 +408,7 @@
                             <div v-if="item.adicionalNutella > 0"
                                 class="text-[10px] font-bold text-amber-800 bg-amber-50/80 px-1.5 py-0.5 rounded flex justify-between items-center mt-1">
                                 <span>🍫 Adicional de Nutella incluso</span>
-                                <span>+ R$ 3,00</span>
+                                <span>+ R$ <span v-text="item.adicionalNutella.toFixed(2).replace('.', ',')"></span></span>
                             </div>
 
                             <button type="button" @click="removerItemCarrinho(item.id)"

@@ -45,36 +45,80 @@ createApp({
             toastMensagem: '',
             toastTimer: null,
 
-            ingredientesDisponiveis: []
+            // Dica 4: Estado da conexão de internet
+            isOffline: !navigator.onLine,
+
+            ingredientesDisponiveis: [],
+            ingredientesMap: {},
+            bairrosMap: {}
         }
     },
     mounted() {
+        // Monitora desconexão com a internet (Dica 4)
+        window.addEventListener('online', () => {
+            this.isOffline = false;
+            this.mostrarToast('Sua conexão de internet retornou! 🟢');
+        });
+        window.addEventListener('offline', () => {
+            this.isOffline = true;
+        });
+
         // Lê as configurações dos inputs hidden com segurança após o DOM estar pronto
         this.nutellaGratisAtiva = document.getElementById('nutella_gratis_config')?.value === 'true';
         this.whatsappVendedor = document.getElementById('whatsapp_vendedor_config')?.value || '';
         this.lojaAbertaAtiva = document.getElementById('loja_aberta_config')?.value !== 'false';
 
+        // Carrega os dados JSON iniciais renderizados pelo backend se existirem
+        try {
+            const ingElem = document.getElementById('initial-ingredientes');
+            if (ingElem && ingElem.textContent) {
+                this.ingredientesMap = JSON.parse(ingElem.textContent);
+            }
+            const bairrosElem = document.getElementById('initial-bairros');
+            if (bairrosElem && bairrosElem.textContent) {
+                this.bairrosMap = JSON.parse(bairrosElem.textContent);
+            }
+        } catch (e) {
+            console.error("Erro ao carregar dados iniciais no JS:", e);
+        }
+
+        // Dica 5: Conexão SSE (Server-Sent Events) para atualizações push instantâneas em tempo real
+        if (window.EventSource) {
+            try {
+                const eventSource = new EventSource('/admin/api/status-stream');
+                eventSource.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        this.processarAtualizacaoStatus(data);
+                        this.isOffline = false;
+                    } catch (e) {
+                        console.error("Erro ao processar pacote SSE:", e);
+                    }
+                };
+                eventSource.onerror = () => {
+                    // Se falhar a transmissão contínua (ex: oscilação de rede), o polling serve de backup
+                };
+            } catch (errSse) {
+                console.warn("EventSource indisponível, usando polling de backup:", errSse);
+            }
+        }
+
+        // Polling tradicional de backup a cada 10 segundos
         setInterval(async () => {
             try {
                 const response = await fetch('/admin/api/status-loja');
                 if (response.ok) {
                     const data = await response.json();
-
-                    // 1. Atualiza se a loja está aberta
-                    this.lojaAbertaAtiva = data.loja_aberta;
-
-                    // 2. Atualiza se a nutella é grátis
-                    this.nutellaGratisAtiva = data.nutella_gratis;
-
-                    // 3. Atualiza os ingredientes do cardápio em tempo real
-                    // Nota: Para isso funcionar perfeitamente, a sua lista de recheios exibida no HTML do cliente 
-                    // deve usar uma diretiva v-if baseada nos dados atualizados se você estiver renderizando via Vue,
-                    // ou você pode guardar 'data.ingredientes_disponiveis' em uma variável do data() para controlar o HTML.
+                    this.processarAtualizacaoStatus(data);
+                    this.isOffline = false;
                 }
             } catch (err) {
-                console.error("Erro automático ao checar status da loja:", err);
+                if (!navigator.onLine) {
+                    this.isOffline = true;
+                }
+                console.error("Erro no polling de status:", err);
             }
-        }, 5000);
+        }, 10000);
     },
     computed: {
         labelTamanho() {
@@ -85,6 +129,9 @@ createApp({
         },
         adicionalNutella() {
             if (this.recheiosSelecionados.includes("Nutella") && !this.nutellaGratisAtiva) {
+                if (this.tamanhoSelecionado === 22) return 2.00;
+                if (this.tamanhoSelecionado === 27) return 3.00;
+                if (this.tamanhoSelecionado === 37) return 5.00;
                 return 3.00;
             }
             return 0.00;
@@ -110,6 +157,46 @@ createApp({
         }
     },
     methods: {
+        processarAtualizacaoStatus(data) {
+            if (!data) return;
+
+            // 1. Loja aberta
+            if (data.loja_aberta !== undefined) {
+                this.lojaAbertaAtiva = data.loja_aberta;
+            }
+
+            // 2. Nutella grátis
+            if (data.nutella_gratis !== undefined) {
+                this.nutellaGratisAtiva = data.nutella_gratis;
+            }
+
+            // 3. Ingredientes
+            if (data.ingredientes) {
+                this.ingredientesMap = data.ingredientes;
+
+                this.recheiosSelecionados = this.recheiosSelecionados.filter(nome => {
+                    if (this.ingredientesMap[nome] && !this.ingredientesMap[nome].disponivel) {
+                        this.mostrarToast(`O recheio "${nome}" ficou indisponível no momento! 🍿`);
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            // 4. Bairros e taxas de entrega
+            if (data.bairros) {
+                this.bairrosMap = data.bairros;
+
+                if (this.bairroSelecionado && this.bairrosMap[this.bairroSelecionado] !== undefined) {
+                    const novaTaxa = parseFloat(this.bairrosMap[this.bairroSelecionado]);
+                    if (this.taxaEntrega !== novaTaxa) {
+                        this.taxaEntrega = novaTaxa;
+                        this.mostrarToast(`Taxa de entrega de ${this.bairroSelecionado} atualizada: R$ ${novaTaxa.toFixed(2).replace('.', ',')} 🛵`);
+                    }
+                }
+            }
+        },
+
         // Exibe um toast de aviso no topo da tela por alguns segundos
         mostrarToast(mensagem, duracao = 3000) {
             if (this.toastTimer) clearTimeout(this.toastTimer);

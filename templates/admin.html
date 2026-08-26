@@ -311,7 +311,7 @@
                                     <span>🍫 Adicional de Nutella:</span>
                                     <span
                                         class="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded">R$
-                                        3,00</span>
+                                        {{ "%.2f"|format(pedido.adicional_nutella)|replace('.', ',') }}</span>
                                 </p>
                                 {% endif %}
                                 <p class="font-bold text-stone-700">💵 Pagamento: <span

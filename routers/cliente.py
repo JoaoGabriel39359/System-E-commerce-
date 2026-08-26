@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -41,7 +42,9 @@ async def get_cardapio(request: Request):
         context={
             "ingredientes": ingredientes_formatados,
             "bairros": bairros_formatados,
-            "config": config_formatada
+            "config": config_formatada,
+            "ingredientes_json": json.dumps(ingredientes_formatados),
+            "bairros_json": json.dumps(bairros_formatados)
         },
         request=request
     )

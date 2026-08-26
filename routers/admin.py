@@ -1,9 +1,15 @@
 import os
 import uuid
+import json
+import time
+import hmac
+import hashlib
+import asyncio
 import urllib.parse
 from datetime import datetime
-from fastapi import APIRouter, Request, Form, Cookie
-from fastapi.responses import RedirectResponse, HTMLResponse
+from collections import defaultdict
+from fastapi import APIRouter, Request, Form, Cookie, HTTPException
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from schemas.pedido import PedidoCreate
 from database import supabase, BAIRROS_ORIGINAIS
@@ -13,6 +19,38 @@ templates = Jinja2Templates(directory="templates")
 
 ADMIN_USER = os.getenv("ADMIN_USER")
 ADMIN_PASS = os.getenv("ADMIN_PASS")
+SECRET_KEY = os.getenv("SECRET_KEY", "divino_recheio_secret_key_2026")
+
+# --- DICA 1: GERADOR E VALIDADOR DE SESSÃO SEGURA (HMAC) ---
+def gerar_token_admin() -> str:
+    user = ADMIN_USER or "admin"
+    return hmac.new(SECRET_KEY.encode(), user.encode(), hashlib.sha256).hexdigest()
+
+def validar_sessao_admin(session_cookie: str) -> bool:
+    if not session_cookie:
+        return False
+    expected_token = gerar_token_admin()
+    # Aceita token HMAC assinado ou o legado 'autenticado_divino' para retrocompatibilidade
+    return hmac.compare_digest(session_cookie, expected_token) or session_cookie == "autenticado_divino"
+
+# --- DICA 3: RATE LIMITER LEVE POR IP (PROTEÇÃO CONTRA DDoS / SPAM) ---
+class SimpleRateLimiter:
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = defaultdict(list)
+
+    def check(self, request: Request):
+        client_ip = request.client.host if request.client else "127.0.0.1"
+        now = time.time()
+        # Filtra registros dentro da janela de tempo
+        self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window_seconds]
+        if len(self.requests[client_ip]) >= self.max_requests:
+            raise HTTPException(status_code=429, detail="Muitas requisições. Por favor, aguarde um instante.")
+        self.requests[client_ip].append(now)
+
+rate_limiter_geral = SimpleRateLimiter(max_requests=120, window_seconds=60)
+rate_limiter_login = SimpleRateLimiter(max_requests=10, window_seconds=60)
 
 @router.get("/login", response_class=HTMLResponse)
 async def get_login_page(request: Request, erro: str = None):
@@ -24,12 +62,13 @@ async def get_login_page(request: Request, erro: str = None):
 
 # --- ROTA: PROCESSA O LOGIN (POST) ---
 @router.post("/login")
-async def post_login(username: str = Form(...), password: str = Form(...)):
+async def post_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    rate_limiter_login.check(request)
     if username == ADMIN_USER and password == ADMIN_PASS:
         resposta = RedirectResponse(url="/admin", status_code=303)
         resposta.set_cookie(
             key="admin_session", 
-            value="autenticado_divino", 
+            value=gerar_token_admin(), 
             httponly=True,
             samesite="lax"
         )
@@ -46,7 +85,7 @@ async def get_logout():
 
 @router.get("", response_class=HTMLResponse)
 async def get_admin(request: Request, admin_session: str = Cookie(default=None)):
-    if admin_session != "autenticado_divino":
+    if not validar_sessao_admin(admin_session):
         return RedirectResponse(url="/admin/login", status_code=303)
 
     # 1. Ingredientes
@@ -96,18 +135,54 @@ async def get_admin(request: Request, admin_session: str = Cookie(default=None))
     )
 
 @router.get("/api/status-loja")
-async def get_status_loja():
+async def get_status_loja(request: Request = None):
+    if request:
+        rate_limiter_geral.check(request)
+
     res_conf = supabase.table("configuracoes").select("*").execute()
     config = {item["chave"]: item["valor"] for item in res_conf.data}
 
-    res_ing = supabase.table("ingredientes").select("nome").eq("disponivel", True).execute()
-    lista_ingredientes = [item["nome"] for item in res_ing.data]
+    res_ing = supabase.table("ingredientes").select("*").order("nome").execute()
+    ingredientes_formatados = {item["nome"]: {"disponivel": item["disponivel"]} for item in res_ing.data}
+    lista_ingredientes = [item["nome"] for item in res_ing.data if item["disponivel"]]
+
+    try:
+        res_bairros = supabase.table("bairros").select("*").order("nome").execute()
+        bairros_formatados = {item["nome"]: float(item["taxa"]) for item in res_bairros.data}
+        if not bairros_formatados:
+            bairros_formatados = BAIRROS_ORIGINAIS
+    except Exception:
+        bairros_formatados = BAIRROS_ORIGINAIS
 
     return {
         "loja_aberta": config.get("loja_aberta") == "true",
         "nutella_gratis": config.get("nutella_gratis") == "true",
-        "ingredientes_disponiveis": lista_ingredientes
+        "ingredientes_disponiveis": lista_ingredientes,
+        "ingredientes": ingredientes_formatados,
+        "bairros": bairros_formatados
     }
+
+# --- DICA 5: ENDPOINT STREAMING SSE PARA TEMPO REAL INSTANTÂNEO ---
+@router.get("/api/status-stream")
+async def get_status_stream(request: Request):
+    rate_limiter_geral.check(request)
+
+    async def event_generator():
+        ultimo_estado = None
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                dados = await get_status_loja()
+                estado_json = json.dumps(dados)
+                if estado_json != ultimo_estado:
+                    ultimo_estado = estado_json
+                    yield f"data: {estado_json}\n\n"
+            except Exception as e:
+                print(f"Aviso SSE status-stream: {e}")
+            await asyncio.sleep(2)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # --- NOVO ENDPOINT LEVE PARA POLLING ---
 @router.get("/api/pedidos/contagem")
@@ -118,7 +193,7 @@ async def get_contagem_pedidos():
 
 @router.post("/salvar")
 async def post_salvar(request: Request, admin_session: str = Cookie(default=None)):
-    if admin_session != "autenticado_divino":
+    if not validar_sessao_admin(admin_session):
         return RedirectResponse(url="/admin/login", status_code=303)
 
     form_data = await request.form()

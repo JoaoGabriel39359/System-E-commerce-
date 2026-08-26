@@ -166,3 +166,19 @@ def test_get_imprimir_pedido_html(mock_supabase):
     assert response.status_code == 200
     assert "DOCERIA DIVINO RECHEIO" in response.text
     assert "PEDIDO #XF92" in response.text
+
+
+def test_hmac_auth_sessao(mock_supabase):
+    """Garante que a autenticação por cookie HMAC assinado funciona corretamente"""
+    from routers.admin import gerar_token_admin
+    token = gerar_token_admin()
+    response = client.get("/admin", cookies={"admin_session": token})
+    assert response.status_code == 200
+    assert "Painel da Cozinha" in response.text
+
+
+def test_api_status_stream(mock_supabase):
+    """Garante que a rota de streaming SSE de status da loja responde com status 200 e media_type correto"""
+    response = client.get("/admin/api/status-stream")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
