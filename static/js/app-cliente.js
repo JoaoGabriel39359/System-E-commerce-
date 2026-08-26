@@ -1,5 +1,17 @@
 const { createApp } = Vue;
 
+function getJsonInicial(id) {
+    try {
+        const elem = document.getElementById(id);
+        if (elem && elem.textContent) {
+            return JSON.parse(elem.textContent);
+        }
+    } catch (e) {
+        console.error("Erro ao carregar dados iniciais:", id, e);
+    }
+    return {};
+}
+
 createApp({
     data() {
         return {
@@ -49,8 +61,8 @@ createApp({
             isOffline: !navigator.onLine,
 
             ingredientesDisponiveis: [],
-            ingredientesMap: {},
-            bairrosMap: {}
+            ingredientesMap: getJsonInicial('initial-ingredientes'),
+            bairrosMap: getJsonInicial('initial-bairros')
         }
     },
     mounted() {

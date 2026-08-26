@@ -41,7 +41,12 @@ class SimpleRateLimiter:
         self.requests = defaultdict(list)
 
     def check(self, request: Request):
-        client_ip = request.client.host if request.client else "127.0.0.1"
+        x_forwarded = request.headers.get("x-forwarded-for")
+        if x_forwarded:
+            client_ip = x_forwarded.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "127.0.0.1"
+
         now = time.time()
         # Filtra registros dentro da janela de tempo
         self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window_seconds]
@@ -49,8 +54,8 @@ class SimpleRateLimiter:
             raise HTTPException(status_code=429, detail="Muitas requisições. Por favor, aguarde um instante.")
         self.requests[client_ip].append(now)
 
-rate_limiter_geral = SimpleRateLimiter(max_requests=120, window_seconds=60)
-rate_limiter_login = SimpleRateLimiter(max_requests=10, window_seconds=60)
+rate_limiter_geral = SimpleRateLimiter(max_requests=600, window_seconds=60)
+rate_limiter_login = SimpleRateLimiter(max_requests=20, window_seconds=60)
 
 @router.get("/login", response_class=HTMLResponse)
 async def get_login_page(request: Request, erro: str = None):
