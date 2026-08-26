@@ -316,12 +316,21 @@ async def get_imprimir_pedido(pedido_id: str):
         
     pedido_encontrado = res_pedido.data[0]
     
+    # Tratamento limpo para data/hora
+    raw_date = pedido_encontrado.get('criado_em', '')
+    data_formatada = raw_date
+    try:
+        dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+        data_formatada = dt.strftime("%d/%m as %H:%M")
+    except Exception:
+        pass
+
     # Formatação de itens e recheios
     recheios_raw = pedido_encontrado['recheios']
     if isinstance(recheios_raw, list):
-        itens_html = "".join([f"<div style='padding-left: 6px; margin-bottom: 2px;'>- {item}</div>" for item in recheios_raw])
+        itens_html = "".join([f"<div style='padding-left: 8px; font-weight: bold;'>- {item}</div>" for item in recheios_raw])
     else:
-        itens_html = f"<div style='padding-left: 6px;'>- {recheios_raw}</div>"
+        itens_html = f"<div style='padding-left: 8px; font-weight: bold;'>- {recheios_raw}</div>"
 
     html_cupom = f"""
     <!DOCTYPE html>
@@ -337,16 +346,16 @@ async def get_imprimir_pedido(pedido_id: str):
             
             @media print {{
                 html, body {{
-                    width: 48mm !important; /* Ajustado para dar margem e nao cortar as bordas */
+                    width: 48mm !important;
                     margin: 0 auto !important;
                     padding: 0 !important;
                 }}
             }}
 
             body {{
-                font-family: Arial, Helvetica, sans-serif; /* Fonte limpa igual do Self Test */
+                font-family: Arial, Helvetica, sans-serif;
                 font-size: 11px;
-                line-height: 1.2;
+                line-height: 1.25;
                 width: 48mm;
                 margin: 0 auto;
                 padding: 4px 0;
@@ -356,56 +365,67 @@ async def get_imprimir_pedido(pedido_id: str):
             }}
             .text-center {{ text-align: center; }}
             .bold {{ font-weight: bold; }}
-            .line {{ border-bottom: 1px dashed #000; margin: 5px 0; }}
+            .uppercase {{ text-transform: uppercase; }}
+            .line {{ border-bottom: 1px dashed #000; margin: 6px 0; }}
+            .double-line {{ border-bottom: 2px solid #000; margin: 8px 0; }}
             .flex {{ display: flex; justify-content: space-between; }}
+            .box-entrega {{ border: 1.5px solid #000; padding: 4px; margin: 4px 0; }}
         </style>
     </head>
     <body>
         <div class="text-center bold" style="font-size: 13px;">
             DOCERIA DIVINO RECHEIO
         </div>
-        <div class="text-center" style="font-size: 10px;">Feito com amor, recheada de sabor</div>
+        <div class="text-center" style="font-size: 9px;">Feito com amor, recheada de sabor</div>
+        <div class="double-line"></div>
+        
+        <div class="flex bold" style="font-size: 12px;">
+            <span>PEDIDO #{pedido_encontrado['id']}</span>
+            <span>{data_formatada}</span>
+        </div>
+        
+        <!-- DESTAQUE PARA O MOTOBOY (ENTREGA) -->
+        <div class="box-entrega">
+            <div class="bold uppercase" style="font-size: 10px; border-b: 1px solid #000; padding-bottom: 2px; margin-bottom: 3px;">
+                ENTREGA / ENDERECO
+            </div>
+            <div><span class="bold">BAIRRO:</span> <span class="bold uppercase" style="font-size: 12px;">{pedido_encontrado['bairro']}</span></div>
+            <div><span class="bold">RUA:</span> <span class="uppercase">{pedido_encontrado['endereco']}</span></div>
+            <div style="margin-top: 3px;"><span class="bold">CLIENTE:</span> {pedido_encontrado['nome']}</div>
+            <div><span class="bold">TEL:</span> {pedido_encontrado['telefone']}</div>
+        </div>
+
         <div class="line"></div>
         
-        <div class="bold" style="font-size: 12px;">PEDIDO #{pedido_encontrado['id']}</div>
-        <div>Data: {pedido_encontrado['criado_em']}</div>
-        <div class="line"></div>
-        
-        <div class="bold">CLIENTE:</div>
-        <div>Nome: {pedido_encontrado['nome']}</div>
-        <div>Tel: {pedido_encontrado['telefone']}</div>
-        <div class="line"></div>
-        
-        <div class="bold">ENTREGA:</div>
-        <div>Bairro: {pedido_encontrado['bairro']}</div>
-        <div>Endereco: {pedido_encontrado['endereco']}</div>
-        <div class="line"></div>
-        
-        <div class="bold">ITENS PEDIDOS:</div>
-        <div>Resumo Copo(s): {pedido_encontrado['tamanho']}</div>
+        <div class="bold uppercase" style="font-size: 11px; margin-bottom: 2px;">
+            ITENS DO PEDIDO:
+        </div>
+        <div style="font-size: 11px;">Copo: <span class="bold">{pedido_encontrado['tamanho']}</span></div>
         {itens_html}
     """
         
     if pedido_encontrado['adicional_nutella'] > 0:
         valor_nutella_formatado = f"{pedido_encontrado['adicional_nutella']:.2f}".replace('.', ',')
-        html_cupom += f"""<div style="padding-left: 6px;">- Adicional Nutella: R$ {valor_nutella_formatado}</div>"""
+        html_cupom += f"""<div style="padding-left: 8px; font-weight: bold;">- Add Nutella: R$ {valor_nutella_formatado}</div>"""
         
     html_cupom += f"""
-        <div class="line"></div>
-        <div class="bold">PAGAMENTO:</div>
-        <div>Forma: {str(pedido_encontrado['forma_pagamento']).upper()}</div>
+        <div class="double-line"></div>
         
-        <div class="flex" style="margin-top: 4px;">
+        <!-- DESTAQUE FINANCEIRO -->
+        <div class="bold uppercase" style="font-size: 11px;">PAGAMENTO:</div>
+        <div class="bold uppercase" style="font-size: 12px; margin-bottom: 4px;">FORMA: {str(pedido_encontrado['forma_pagamento']).upper()}</div>
+        
+        <div class="flex" style="font-size: 11px;">
             <span>Taxa Entrega:</span>
             <span>R$ {f"{pedido_encontrado['taxa_entrega']:.2f}".replace('.', ',')}</span>
         </div>
-        <div class="flex bold" style="font-size: 12px; margin-top: 2px;">
-            <span>TOTAL GERAL:</span>
+        <div class="flex bold" style="font-size: 13px; margin-top: 3px; border-top: 1px solid #000; padding-top: 3px;">
+            <span>TOTAL A COBRAR:</span>
             <span>R$ {f"{pedido_encontrado['total']:.2f}".replace('.', ',')}</span>
         </div>
         
         <div class="line"></div>
-        <div class="text-center bold" style="margin-top: 10px; font-size: 10px;">
+        <div class="text-center bold" style="margin-top: 8px; font-size: 10px;">
             Obrigado pelo pedido!
         </div>
 
