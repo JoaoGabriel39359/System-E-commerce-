@@ -202,41 +202,48 @@ async def post_salvar(request: Request, admin_session: str = Cookie(default=None
         return RedirectResponse(url="/admin/login", status_code=303)
 
     form_data = await request.form()
-    
-    # 1. Ingredientes
-    res_ing = supabase.table("ingredientes").select("nome").execute()
-    for item in res_ing.data:
-        nome = item["nome"]
-        status_disponivel = f"ingrediente_{nome}" in form_data
-        supabase.table("ingredientes").update({"disponivel": status_disponivel}).eq("nome", nome).execute()
 
-    # 2. Nutella Grátis e Status da Loja
-    loja_status = "true" if "loja_aberta" in form_data else "false"
+    # 1. Ingredientes — busca IDs e salva tudo em 1 upsert em lote
+    res_ing = supabase.table("ingredientes").select("id, nome").execute()
+    if res_ing.data:
+        payload_ing = [
+            {"id": item["id"], "nome": item["nome"], "disponivel": f"ingrediente_{item['nome']}" in form_data}
+            for item in res_ing.data
+        ]
+        supabase.table("ingredientes").upsert(payload_ing).execute()
+
+    # 2. Configurações (loja, nutella, whatsapp) — 1 upsert único
+    loja_status    = "true" if "loja_aberta"    in form_data else "false"
     nutella_status = "true" if "nutella_gratis" in form_data else "false"
-    
-    supabase.table("configuracoes").update({"valor": loja_status}).eq("chave", "loja_aberta").execute()
-    supabase.table("configuracoes").update({"valor": nutella_status}).eq("chave", "nutella_gratis").execute()
 
-    # 3. WhatsApp do Vendedor
+    configs_payload = [
+        {"chave": "loja_aberta",    "valor": loja_status},
+        {"chave": "nutella_gratis", "valor": nutella_status},
+    ]
+
     if "whatsapp_vendedor" in form_data:
         raw_phone = form_data["whatsapp_vendedor"]
         digits = "".join([c for c in raw_phone if c.isdigit()])
         if len(digits) in [10, 11] and not digits.startswith("55"):
             digits = "55" + digits
-        supabase.table("configuracoes").update({"valor": digits}).eq("chave", "whatsapp_vendedor").execute()
+        configs_payload.append({"chave": "whatsapp_vendedor", "valor": digits})
 
-    # 4. Taxas dos Bairros (Sincronizado no Supabase)
-    res_bairros = supabase.table("bairros").select("nome").execute()
-    for item in res_bairros.data:
-        bairro = item["nome"]
-        campo_taxa = f"taxa_{bairro}"
-        if campo_taxa in form_data:
-            try:
-                nova_taxa = float(form_data[campo_taxa])
-                supabase.table("bairros").update({"taxa": nova_taxa}).eq("nome", bairro).execute()
-            except ValueError:
-                pass
-        
+    supabase.table("configuracoes").upsert(configs_payload, on_conflict="chave").execute()
+
+    # 3. Bairros — busca nome/taxa e salva alterados em 1 upsert em lote (PK = nome)
+    res_bairros = supabase.table("bairros").select("nome, taxa").execute()
+    if res_bairros.data:
+        payload_bairros = []
+        for item in res_bairros.data:
+            campo = f"taxa_{item['nome']}"
+            if campo in form_data:
+                try:
+                    payload_bairros.append({"nome": item["nome"], "taxa": float(form_data[campo])})
+                except ValueError:
+                    pass
+        if payload_bairros:
+            supabase.table("bairros").upsert(payload_bairros, on_conflict="nome").execute()
+
     resposta = RedirectResponse(url="/admin", status_code=303)
     resposta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resposta.headers["Pragma"] = "no-cache"

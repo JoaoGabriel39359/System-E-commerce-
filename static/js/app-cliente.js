@@ -30,6 +30,7 @@ createApp({
             // Rascunho do produto ATUAL sendo montado
             tamanhoSelecionado: null,
             recheiosSelecionados: [],
+            nutellaSelecionada: false,
 
             // Array que guarda todos os copos adicionados ao carrinho
             itensNoCarrinho: [],
@@ -66,7 +67,7 @@ createApp({
         }
     },
     mounted() {
-        // Monitora desconexão com a internet (Dica 4)
+        // 1. Monitora desconexão com a internet
         window.addEventListener('online', () => {
             this.isOffline = false;
             this.mostrarToast('Sua conexão de internet retornou! 🟢');
@@ -75,12 +76,16 @@ createApp({
             this.isOffline = true;
         });
 
-        // Lê as configurações dos inputs hidden com segurança após o DOM estar pronto
-        this.nutellaGratisAtiva = document.getElementById('nutella_gratis_config')?.value === 'true';
+        // 2. Lê as configurações dos inputs hidden vindos do HTML/Python com verificação segura
+        const inputNutella = document.getElementById('nutella_gratis_config');
+        if (inputNutella) {
+            this.nutellaGratisAtiva = inputNutella.value === 'true';
+        }
+
         this.whatsappVendedor = document.getElementById('whatsapp_vendedor_config')?.value || '';
         this.lojaAbertaAtiva = document.getElementById('loja_aberta_config')?.value !== 'false';
 
-        // Carrega os dados JSON iniciais renderizados pelo backend se existirem
+        // 3. Carrega os dados JSON iniciais renderizados pelo backend se existirem
         try {
             const ingElem = document.getElementById('initial-ingredientes');
             if (ingElem && ingElem.textContent) {
@@ -94,7 +99,7 @@ createApp({
             console.error("Erro ao carregar dados iniciais no JS:", e);
         }
 
-        // Dica 5: Conexão SSE (Server-Sent Events) para atualizações push instantâneas em tempo real
+        // 4. Conexão SSE (Server-Sent Events) para atualizações push em tempo real
         if (window.EventSource) {
             try {
                 const eventSource = new EventSource('/admin/api/status-stream');
@@ -108,14 +113,14 @@ createApp({
                     }
                 };
                 eventSource.onerror = () => {
-                    // Se falhar a transmissão contínua (ex: oscilação de rede), o polling serve de backup
+                    // Se falhar a transmissão contínua, o polling serve de backup
                 };
             } catch (errSse) {
                 console.warn("EventSource indisponível, usando polling de backup:", errSse);
             }
         }
 
-        // Polling tradicional de backup a cada 10 segundos
+        // 5. Polling tradicional de backup a cada 10 segundos
         setInterval(async () => {
             try {
                 const response = await fetch('/admin/api/status-loja');
@@ -140,13 +145,16 @@ createApp({
             return "";
         },
         adicionalNutella() {
-            if (this.recheiosSelecionados.includes("Nutella") && !this.nutellaGratisAtiva) {
-                if (this.tamanhoSelecionado === 22) return 2.00;
-                if (this.tamanhoSelecionado === 27) return 3.00;
-                if (this.tamanhoSelecionado === 37) return 5.00;
-                return 3.00;
+            // Se a Nutella não foi marcada ou está em promoção no Admin, não cobra nada
+            if (!this.nutellaSelecionada || this.nutellaGratisAtiva) {
+                return 0.00;
             }
-            return 0.00;
+
+            // Se o botão de Nutella grátis estiver desligado no admin e o cliente marcou a opção:
+            if (this.tamanhoSelecionado === 22) return 2.00; // 350ML
+            if (this.tamanhoSelecionado === 27) return 3.00; // 500ML
+            if (this.tamanhoSelecionado === 37) return 5.00; // 1L
+            return 3.00;
         },
         // Calcula o valor do copo que está sendo montado na tela agora
         precoItemAtual() {
@@ -168,6 +176,16 @@ createApp({
             return this.totalPedido.toFixed(2).replace('.', ',');
         }
     },
+
+    watch: {
+        nutellaGratisAtiva(novoValor) {
+            // Se o status mudar com a página aberta, exibe aviso para o cliente
+            if (novoValor) {
+                this.mostrarToast('🎉 Oba! Nutella está GRÁTIS hoje!');
+            }
+        }
+    },
+
     methods: {
         processarAtualizacaoStatus(data) {
             if (!data) return;
@@ -179,7 +197,7 @@ createApp({
 
             // 2. Nutella grátis
             if (data.nutella_gratis !== undefined) {
-                this.nutellaGratisAtiva = data.nutella_gratis;
+                this.nutellaGratisAtiva = (data.nutella_gratis === true || data.nutella_gratis === 'true');
             }
 
             // 3. Ingredientes
@@ -255,24 +273,33 @@ createApp({
                 return;
             }
 
-            // Cria uma cópia do copo atual montado
+            // Copia os recheios e adiciona a informação da Nutella isolada se marcada
+            let recheiosFinais = [...this.recheiosSelecionados];
+            if (this.nutellaSelecionada) {
+                const labelNutella = this.nutellaGratisAtiva ? 'Nutella (Grátis 🎉)' : 'Nutella (Adicional 🍫)';
+                recheiosFinais.push(labelNutella);
+            }
+
+            // Cria o objeto do produto com a Nutella calculada a parte
             const novoItem = {
                 id: Date.now(),
                 tamanhoLabel: this.labelTamanho,
-                recheios: [...this.recheiosSelecionados],
+                recheios: recheiosFinais,
+                temNutellaIsolada: this.nutellaSelecionada,
                 adicionalNutella: this.adicionalNutella,
                 precoTotal: this.precoItemAtual
             };
 
             this.itensNoCarrinho.push(novoItem);
 
-            // Guarda referência do item para exibir no modal
+            // Guarda referência do item para o modal de confirmação
             this.ultimoItemAdicionado = novoItem;
             this.modalAdicionadoAberto = true;
 
-            // Reseta a montagem para o cliente poder escolher outro
+            // RESETA O RASCUNHO PARA O PRÓXIMO POTE:
             this.recheiosSelecionados = [];
             this.tamanhoSelecionado = null;
+            this.nutellaSelecionada = false; // 👈 RESETA A NUTELLA PARA O PRÓXIMO POTE
         },
 
         // Fecha o modal de confirmação e deixa o cliente montar mais
