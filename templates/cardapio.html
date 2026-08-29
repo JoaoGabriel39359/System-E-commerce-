@@ -182,9 +182,28 @@
                         <h3 class="font-extrabold text-lg text-pink-700">Finalizar Pedido</h3>
                     </div>
 
+                    <!-- MODO DE ENTREGA OU RETIRADA -->
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-black text-gray-500 uppercase tracking-wider block">Como deseja
+                            receber?</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" @click="selecionarTipoEntrega('entrega')"
+                                class="p-3 border-2 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                                :class="tipoEntrega === 'entrega' ? 'border-pink-300 bg-pink-100/50 text-pink-700 shadow-sm' : 'border-gray-100 text-gray-600 bg-white'">
+                                🛵 Delivery / Entrega
+                            </button>
+                            <button type="button" @click="selecionarTipoEntrega('retirada')"
+                                class="p-3 border-2 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                                :class="tipoEntrega === 'retirada' ? 'border-pink-300 bg-pink-100/50 text-pink-700 shadow-sm' : 'border-gray-100 text-gray-600 bg-white'">
+                                🏪 Retirar na Loja
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- DADOS DO CLIENTE -->
                     <div class="space-y-1.5">
                         <label class="text-xs font-black text-gray-500 uppercase tracking-wider">Nome Completo</label>
-                        <input type="text" v-model="nomeCliente" placeholder="Como o entregador deve te chamar?"
+                        <input type="text" v-model="nomeCliente" placeholder="Seu nome"
                             class="w-full p-3.5 border-2 border-gray-100 rounded-2xl text-sm font-semibold focus:outline-none focus:border-pink-300 transition-all">
                     </div>
 
@@ -195,40 +214,41 @@
                             class="w-full p-3.5 border-2 border-gray-100 rounded-2xl text-sm font-semibold focus:outline-none focus:border-pink-300 transition-all">
                     </div>
 
-                    <div class="space-y-1.5 relative">
-                        <label class="text-xs font-black text-gray-500 uppercase tracking-wider block">Bairro de
-                            Entrega</label>
+                    <!-- CAMPOS DE ENDEREÇO (SÓ APARECEM SE TIPOENTREGA === 'ENTREGA') -->
+                    <div v-if="tipoEntrega === 'entrega'" class="space-y-3 transition-all duration-300">
+                        <div class="space-y-1.5 relative">
+                            <label class="text-xs font-black text-gray-500 uppercase tracking-wider block">Bairro de
+                                Entrega</label>
 
-                        <button type="button" @click="toggleDropdownBairro"
-                            class="w-full p-3.5 border-2 border-gray-100 rounded-2xl text-sm font-semibold text-left focus:outline-none focus:border-pink-300 transition-all bg-white flex justify-between items-center select-none">
-                            <span :class="bairroSelecionado ? 'text-gray-800' : 'text-gray-400'">
-                                <span
-                                    v-text="bairroSelecionado ? bairroSelecionado + ' (R$ ' + taxaEntrega.toFixed(2).replace('.', ',') + ')' : 'Selecione seu bairro...'"></span>
-                            </span>
-                            <span class="text-xs text-gray-400">▼</span>
-                        </button>
+                            <button type="button" @click="toggleDropdownBairro"
+                                class="w-full p-3.5 border-2 border-gray-100 rounded-2xl text-sm font-semibold text-left focus:outline-none focus:border-pink-300 transition-all bg-white flex justify-between items-center select-none">
+                                <span :class="bairroSelecionado ? 'text-gray-800' : 'text-gray-400'">
+                                    <span
+                                        v-text="bairroSelecionado ? bairroSelecionado + ' (R$ ' + taxaEntrega.toFixed(2).replace('.', ',') + ')' : 'Selecione seu bairro...'"></span>
+                                </span>
+                                <span class="text-xs text-gray-400">▼</span>
+                            </button>
 
-                        <div v-if="abrirDropdownBairro"
-                            class="absolute left-0 right-0 z-[60] bg-white border-2 border-pink-100 rounded-2xl shadow-xl p-3 space-y-2 mt-1 max-h-60 overflow-y-auto">
+                            <div v-if="abrirDropdownBairro"
+                                class="absolute left-0 right-0 z-[60] bg-white border-2 border-pink-100 rounded-2xl shadow-xl p-3 space-y-2 mt-1 max-h-60 overflow-y-auto">
 
-                            <input type="text" v-model="buscaBairro" ref="inputBuscaBairro"
-                                placeholder="Digite o nome do seu bairro..."
-                                class="w-full p-2.5 border-2 border-pink-100 rounded-xl text-xs font-semibold focus:outline-none focus:border-pink-300 bg-pink-50/30">
+                                <input type="text" v-model="buscaBairro" ref="inputBuscaBairro"
+                                    placeholder="Digite o nome do seu bairro..."
+                                    class="w-full p-2.5 border-2 border-pink-100 rounded-xl text-xs font-semibold focus:outline-none focus:border-pink-300 bg-pink-50/30">
 
-                            <div class="space-y-1 pt-1">
-                                <button type="button" v-for="(taxa, bairro) in bairrosMap" :key="bairro"
-                                    v-show="filtrarBairro(bairro)" @click="clicarNoBairro(bairro, taxa)"
-                                    class="w-full text-left p-2.5 hover:bg-pink-50 rounded-xl text-sm font-bold text-gray-700 transition-colors flex justify-between items-center">
-                                    <span v-text="bairro"></span>
-                                    <span class="text-xs text-pink-500 bg-pink-100/50 px-2 py-0.5 rounded-md">
-                                        R$ <span v-text="Number(taxa).toFixed(2).replace('.', ',')"></span>
-                                    </span>
-                                </button>
+                                <div class="space-y-1 pt-1">
+                                    <button type="button" v-for="(taxa, bairro) in bairrosMap" :key="bairro"
+                                        v-show="filtrarBairro(bairro)" @click="clicarNoBairro(bairro, taxa)"
+                                        class="w-full text-left p-2.5 hover:bg-pink-50 rounded-xl text-sm font-bold text-gray-700 transition-colors flex justify-between items-center">
+                                        <span v-text="bairro"></span>
+                                        <span class="text-xs text-pink-500 bg-pink-100/50 px-2 py-0.5 rounded-md">
+                                            R$ <span v-text="Number(taxa).toFixed(2).replace('.', ',')"></span>
+                                        </span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="space-y-3">
                         <div class="space-y-1.5">
                             <label class="text-xs font-black text-gray-500 uppercase tracking-wider">Rua /
                                 Logradouro</label>
@@ -247,11 +267,16 @@
                             <div class="col-span-2 space-y-1.5">
                                 <label class="text-xs font-black text-gray-500 uppercase tracking-wider">Complemento
                                     <span class="text-gray-400 font-normal">(Opcional)</span></label>
-                                <input type="text" v-model="enderecoComplemento"
-                                    placeholder="Ex: Ap 202, Casa dos Fundos"
+                                <input type="text" v-model="enderecoComplemento" placeholder="Ex: Ap 202"
                                     class="w-full p-3.5 border-2 border-gray-100 rounded-2xl text-sm font-semibold focus:outline-none focus:border-pink-300 transition-all">
                             </div>
                         </div>
+                    </div>
+
+                    <div v-else class="bg-pink-50 p-4 rounded-2xl border border-pink-200 text-center space-y-1">
+                        <span class="text-sm font-black text-pink-800 block">🏪 Retirada no Balcão</span>
+                        <p class="text-xs font-medium text-pink-700">Seu pedido será preparado para você retirar
+                            diretamente na doceria. Não há cobrança de taxa de entrega!</p>
                     </div>
 
                     <div class="space-y-2 pt-2">
